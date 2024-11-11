@@ -1,0 +1,501 @@
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.controller.ts
+import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { CreatePlayerDto } from '../player/dto/create-player.dto'; // Create this DTO
+import { LocalAuthGuard } from './local-auth.guard'; // Create this guard
+import { AuthGuard } from '@nestjs/passport';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private authService: AuthService) {}
+
+  @Post('signup')
+  async signup(@Body() createPlayerDto: CreatePlayerDto) {
+    await this.authService.signup(createPlayerDto);
+    return { message: 'Signup successful!' };
+  }
+
+  @UseGuards(LocalAuthGuard) // Use the local strategy for username/password login
+  @Post('login')
+  async login(@Request() req) {
+    return this.authService.login(req.user); // req.user will be populated by the LocalStrategy
+  }
+
+  @UseGuards(AuthGuard('jwt')) // Protect this route with JWT
+  @Post('profile')
+  getProfile(@Request() req) {
+    // The user is available in req.user thanks to the JwtStrategy
+    return req.user;
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.module.ts
+import { Module } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller'; // Create this next
+import { PlayerModule } from '../player/player.module'; // Create this shortly
+import { PassportModule } from '@nestjs/passport';
+import { JwtModule } from '@nestjs/jwt';
+import { JwtStrategy } from './jwt.strategy'; // We'll create this later
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Player } from '../player/player.entity';
+import { LocalStrategy } from './local.strategy';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Player]),
+    PlayerModule,
+    PassportModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET, // Use environment variable
+      signOptions: { expiresIn: '1d' }, // Example expiration time
+    }),
+  ],
+  providers: [AuthService, JwtStrategy, LocalStrategy],
+  controllers: [AuthController],
+  exports: [AuthService],
+})
+export class AuthModule {}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.service.ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { PlayerService } from '../player/player.service';
+import { CreatePlayerDto } from 'src/player/dto/create-player.dto';
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private playerService: PlayerService,
+    private jwtService: JwtService,
+    private configService: ConfigService,
+  ) {}
+
+  async signup(createPlayerDto: CreatePlayerDto) {
+    const existingUser = await this.playerService.findOneByEmail(
+      createPlayerDto.email,
+    );
+    if (existingUser) {
+      // Throw an exception or return an appropriate error message
+      throw new UnauthorizedException('Email is already registered.');
+    }
+
+    const existingUserWithUsername = await this.playerService.findOneByUsername(
+      createPlayerDto.username,
+    );
+    if (existingUserWithUsername) {
+      // Throw an exception or return an appropriate error message
+      throw new UnauthorizedException('Username is already registered.');
+    }
+
+    // Hash the password before saving it if the email and username are not already registered
+
+    const user = await this.playerService.create(createPlayerDto);
+
+    // Hashing takes place inside PlayerService.create
+
+    return user;
+  }
+
+  async validateUser(username: string, pass: string): Promise<any> {
+    const user = await this.playerService.findOneByUsername(username);
+
+    if (!user) {
+      return null;
+    }
+
+    const isMatch = await bcrypt.compare(pass, user.password);
+    if (isMatch) {
+      // Exclude the password from the returned user object
+      const { password, ...result } = user;
+      return result;
+    }
+    return null;
+  }
+
+  async login(user: any) {
+    const payload = { email: user.email, sub: user.id }; // Include user id (sub)
+    return {
+      access_token: this.jwtService.sign(payload, {
+        secret: this.configService.get('JWT_SECRET'),
+      }),
+    };
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\jwt.strategy.ts
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PassportStrategy } from '@nestjs/passport';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PlayerService } from '../player/player.service';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(private playerService: PlayerService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET,
+    });
+  }
+
+  async validate(payload: any) {
+    // payload is the data encoded in the JWT
+    const user = await this.playerService.findOneByEmail(payload.email);
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    // The validated user object will be available through request.user
+    return user;
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\local-auth.guard.ts
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class LocalAuthGuard extends AuthGuard('local') {}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\local.strategy.ts
+import { Strategy } from 'passport-local';
+import { PassportStrategy } from '@nestjs/passport';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { AuthService } from './auth.service';
+
+@Injectable()
+export class LocalStrategy extends PassportStrategy(Strategy) {
+  constructor(private authService: AuthService) {
+    super({ usernameField: 'username' }); // Specify the username field
+  }
+
+  async validate(username: string, password: string): Promise<any> {
+    const user = await this.authService.validateUser(username, password);
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    return user;
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\dto\create-player.dto.ts
+import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+
+export class CreatePlayerDto {
+  @IsNotEmpty()
+  @IsString()
+  username: string;
+
+  @IsNotEmpty()
+  @IsEmail()
+  email: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters' }) // Example validation
+  password: string;
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.entity.ts
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
+export class Player {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ unique: true })
+  email: string;
+
+  @Column()
+  password: string; // Store the hashed password
+
+  @Column({ unique: true })
+  username: string;
+
+  // ... other fields (createdAt, updatedAt, deletedAt) can be added
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.module.ts
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Player } from './player.entity';
+import { PlayerService } from './player.service'; // Create this
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Player])],
+  providers: [PlayerService],
+  exports: [PlayerService], // So AuthModule can use it
+})
+export class PlayerModule {}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.service.ts
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Player } from './player.entity';
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class PlayerService {
+  constructor(
+    @InjectRepository(Player)
+    private playerRepository: Repository<Player>,
+  ) {}
+
+  async create(playerData: Partial<Player>): Promise<Player> {
+    const saltOrRounds = 10;
+    const hashedPassword = await bcrypt.hash(playerData.password, saltOrRounds);
+
+    const newPlayer = this.playerRepository.create({
+      ...playerData,
+      password: hashedPassword,
+    });
+    return this.playerRepository.save(newPlayer);
+  }
+
+  async findOneByEmail(email: string): Promise<Player | undefined> {
+    return this.playerRepository.findOneBy({ email });
+  }
+
+  async findOneByUsername(username: string): Promise<Player | undefined> {
+    return this.playerRepository.findOneBy({ username });
+  }
+
+  // ...other methods for updating, deleting, etc.
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.controller.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { GameGateway } from './game.gateway';
+import { AuthModule } from './auth/auth.module'; // Correctly import AuthModule
+import { Player } from './player/player.entity';
+import { PlayerService } from './player/player.service';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        url: configService.get<string>('DATABASE_URL'),
+        entities: [Player],
+        synchronize: true,
+      }),
+      inject: [ConfigService],
+    }),
+    TypeOrmModule.forFeature([Player]),
+    AuthModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService, GameGateway, PlayerService],
+})
+export class AppModule {}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\game.gateway.ts
+// game.gateway.ts
+import {
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  ConnectedSocket,
+  MessageBody,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+
+@WebSocketGateway({
+  cors: {
+    origin: '*', // Adjust for production
+  },
+  namespace: 'game',
+})
+export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer() server: Server;
+  constructor() {
+    console.log(' server instance in GameGateway', this.server);
+  }
+  private onlineUsers: Set<string> = new Set(); // Back to Set for simplicity
+
+  afterInit(server: Server) {
+    console.log('Server initialized. Clearing online users list.');
+    this.onlineUsers.clear(); // Clear the onlineUsers Set when the server starts
+    this.emitUserList(); //Emit an empty user list to any connected clients immediately after server start
+  }
+
+  handleConnection(@ConnectedSocket() client: Socket) {
+    console.log(`Client connected: ${client.id}`);
+    this.onlineUsers.add(client.id);
+    this.emitUserList(); // Emit to all connected clients
+  }
+
+  handleDisconnect(@ConnectedSocket() client: Socket) {
+    console.log(`Client disconnected: ${client.id}`);
+
+    //   const gameId = this.onlineUsers.get(client.id);
+    this.onlineUsers.delete(client.id);
+    this.emitUserList(); // Remove the user and update the list
+  }
+
+  //   @SubscribeMessage('joinGame')
+  //   async handleJoinGame(
+  //     @ConnectedSocket() client: Socket,
+  //     @MessageBody('gameId') gameId: string,
+  //   ) {
+  //     client.join(gameId);
+  //     console.log(`Client ${client.id} joined game: ${gameId}`);
+  //     this.onlineUsers.set(client.id, gameId);
+  //     this.emitUserList(gameId); // Update and emit the user list upon joining
+  //     client.emit('joinedGame', { gameId });
+  //   }
+
+  async emitUserList() {
+    // const clientsInRoom = await this.server.fetchSockets();
+    // const onlineUsersInRoom = clientsInRoom.map((c) => c.id);
+    // this.server.emit('updateUserList', onlineUsersInRoom);
+    this.server.emit('updateUserList', Array.from(this.onlineUsers));
+  }
+
+  @SubscribeMessage('getOnlineUsers')
+  getOnlineUsers() {
+    // No need for client parameter
+    this.emitUserList(); // Emit the general user list to all clients
+  }
+
+  @SubscribeMessage('selectCell')
+  handleSelectCell(
+    @MessageBody() cell: string,
+    @ConnectedSocket() client: Socket,
+  ) {
+    // Broadcast to all connected clients except the sender
+    client.broadcast.emit('cellSelected', { cell, clientId: client.id });
+  }
+}
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { GameGateway } from './game.gateway'; // Adjust the path as necessary
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: process.env.FRONTEND_URL,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+  });
+  const gameGatewayInstances = app.get(GameGateway);
+  console.log('GameGateway Instances:', gameGatewayInstances); // Inspect in console
+  await app.listen(process.env.PORT ?? 4000);
+}
+bootstrap();
+
+
+
+// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\typeorm.config.ts
+import { DataSource } from 'typeorm';
+import { Player } from './player/player.entity'; // We'll create this entity shortly
+
+export default new DataSource({
+  type: 'postgres',
+  url: process.env.DATABASE_URL,
+  synchronize: true, // Only for development; set to false in production
+  entities: [Player],
+  ssl: {
+    rejectUnauthorized: false, // Only for Neon's free tier.  Disable in other environments.
+  },
+});
+
