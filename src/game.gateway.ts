@@ -59,11 +59,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
   handleDisconnect(@ConnectedSocket() client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
+    // Remove user from onlineUsers if present. Use username from JWT if possible.
+    if (client.handshake.headers.authorization) {
+      try {
+        const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
 
-    //   const gameId = this.onlineUsers.get(client.id);
-    this.onlineUsers.delete(client.id);
-    this.emitUserList(); // Remove the user and update the list
+        const decoded = this.jwtService.verify(token, {
+          secret: process.env.JWT_SECRET,
+        });
+
+        this.onlineUsers.delete(decoded.username);
+      } catch (error) {
+        // ... error handling (optional) - client was probably not authenticated
+        console.log('Error during disconnection:', error);
+      }
+    }
+    this.emitUserList();
+    console.log(`Client disconnected: ${client.id}`);
+    // Remove the user and update the list
   }
 
   //   @SubscribeMessage('joinGame')
@@ -91,9 +104,80 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.emitUserList(); // Emit the general user list to all clients
   }
 
+  @SubscribeMessage('sendInvite')
+  handleSendInvite(
+    @MessageBody() data: { to: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      // Log the username sending the invite
+
+      console.log(decoded.username, 'sending invite to', data.to);
+      const { to } = data;
+      // Emit receiveInvite to the specific user using their socket ID
+      client.to(to).emit('receiveInvite', { from: decoded.username });
+    } catch (error) {
+      client.disconnect();
+    }
+  }
+
+  @SubscribeMessage('acceptInvite')
+  async handleAcceptInvite(
+    @MessageBody() data: { from: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1];
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const roomId = `room-${data.from}-${decoded.username}`; // Create room ID using usernames
+      console.log('Room ID created: ', roomId);
+      client.join(roomId);
+      client.to(data.from).emit('joinRoom', { roomId }); // Tell 'from' user to join
+
+      return roomId; // Return roomId
+    } catch (error) {
+      console.error('Error accepting invite', error);
+      client.disconnect();
+    }
+  }
+
+  @SubscribeMessage('joinRoom')
+  handleJoinRoom(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1];
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const { roomId } = data;
+
+      client.join(roomId);
+      console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
+
+      client.emit('joinedRoom', { roomId });
+      client.to(roomId).emit('joinedRoom', { roomId });
+    } catch (error) {
+      client.disconnect();
+    }
+  }
+
   @SubscribeMessage('selectCell')
   handleSelectCell(
-    @MessageBody() cell: string,
+    @MessageBody() data: { cell: string; roomId: string },
     @ConnectedSocket() client: Socket,
   ) {
     try {
@@ -103,10 +187,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
       // Now emits username instead of client ID
 
-      client.broadcast.emit('cellSelected', {
-        cell,
-        username: decoded.username,
-      });
+      client
+        .to(data.roomId)
+        .emit('cellSelected', { cell: data.cell, username: decoded.username });
     } catch (error) {
       client.disconnect();
     }
