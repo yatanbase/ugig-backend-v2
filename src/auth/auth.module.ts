@@ -15,7 +15,7 @@ import { LocalStrategy } from './local.strategy';
     PlayerModule,
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET, // Use environment variable
+      secret: 'secret', // Use environment variable
       signOptions: { expiresIn: '1d' }, // Example expiration time
     }),
   ],

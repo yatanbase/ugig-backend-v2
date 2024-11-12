@@ -34,11 +34,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleConnection(client: Socket) {
     try {
       // Get and verify JWT from connection headers
-      console.log('client', client);
+      // console.log('client', client);
+      console.log('jwt secret', process.env.JWT_SECRET);
       const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
       console.log('token', token);
       const decoded = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET,
+        secret: 'secret',
       });
 
       console.log('here', decoded);
@@ -53,7 +54,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     } catch (error) {
       // Handle invalid token (disconnect client or other action)
-      console.log('invalid token provided by user');
+      console.log('invalid token provided by user', error);
       client.disconnect();
     }
   }
