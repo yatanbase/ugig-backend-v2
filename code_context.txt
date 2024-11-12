@@ -51,7 +51,7 @@ import { LocalStrategy } from './local.strategy';
     PlayerModule,
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET, // Use environment variable
+      secret: 'secret', // Use environment variable
       signOptions: { expiresIn: '1d' }, // Example expiration time
     }),
   ],
@@ -107,7 +107,7 @@ export class AuthService {
 
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.playerService.findOneByUsername(username);
-
+    console.log('user in validateUser', user);
     if (!user) {
       return null;
     }
@@ -122,7 +122,13 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const payload = { email: user.email, sub: user.id }; // Include user id (sub)
+    const payload = {
+      username: user.username,
+      email: user.email,
+      sub: user.id,
+    };
+    console.log('jwt in login service', process.env.JWT_SECRET); // Include user id (sub)
+    console.log('jwt in login service', this.configService.get('JWT_SECRET')); // Include user id (sub)
     return {
       access_token: this.jwtService.sign(payload, {
         secret: this.configService.get('JWT_SECRET'),
@@ -336,6 +342,7 @@ export class AppController {
 // File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.module.ts
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
+import { JwtModule } from '@nestjs/jwt';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -362,6 +369,10 @@ import { PlayerService } from './player/player.service';
     }),
     TypeOrmModule.forFeature([Player]),
     AuthModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET,
+      signOptions: { expiresIn: '1d' },
+    }),
   ],
   controllers: [AppController],
   providers: [AppService, GameGateway, PlayerService],
@@ -393,6 +404,8 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
+import { JwtService } from '@nestjs/jwt'; // Import JwtService
+
 import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({
@@ -403,7 +416,7 @@ import { Server, Socket } from 'socket.io';
 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
-  constructor() {
+  constructor(private readonly jwtService: JwtService) {
     console.log(' server instance in GameGateway', this.server);
   }
   private onlineUsers: Set<string> = new Set(); // Back to Set for simplicity
@@ -414,12 +427,33 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.emitUserList(); //Emit an empty user list to any connected clients immediately after server start
   }
 
-  handleConnection(@ConnectedSocket() client: Socket) {
-    console.log(`Client connected: ${client.id}`);
-    this.onlineUsers.add(client.id);
-    this.emitUserList(); // Emit to all connected clients
-  }
+  async handleConnection(client: Socket) {
+    try {
+      // Get and verify JWT from connection headers
+      // console.log('client', client);
+      console.log('jwt secret', process.env.JWT_SECRET);
+      const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
+      console.log('token', token);
+      const decoded = this.jwtService.verify(token, {
+        secret: 'secret',
+      });
 
+      console.log('here', decoded);
+
+      if (decoded) {
+        // Store username if JWT is valid
+
+        this.onlineUsers.add(decoded.username);
+        console.log(`Client connected: ${decoded.username}`);
+
+        this.emitUserList();
+      }
+    } catch (error) {
+      // Handle invalid token (disconnect client or other action)
+      console.log('invalid token provided by user', error);
+      client.disconnect();
+    }
+  }
   handleDisconnect(@ConnectedSocket() client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
 
@@ -458,8 +492,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() cell: string,
     @ConnectedSocket() client: Socket,
   ) {
-    // Broadcast to all connected clients except the sender
-    client.broadcast.emit('cellSelected', { cell, clientId: client.id });
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+      // Now emits username instead of client ID
+
+      client.broadcast.emit('cellSelected', {
+        cell,
+        username: decoded.username,
+      });
+    } catch (error) {
+      client.disconnect();
+    }
   }
 }
 
