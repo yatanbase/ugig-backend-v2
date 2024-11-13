@@ -24,10 +24,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(' server instance in GameGateway', this.server);
   }
   private onlineUsers: Set<string> = new Set(); // Back to Set for simplicity
+  private userSockets = new Map<string, Socket>(); // Map to store user sockets
 
   afterInit(server: Server) {
     console.log('Server initialized. Clearing online users list.');
     this.onlineUsers.clear(); // Clear the onlineUsers Set when the server starts
+    this.userSockets.clear(); // Clear the userSockets Map when the server starts
     this.emitUserList(); //Emit an empty user list to any connected clients immediately after server start
   }
 
@@ -46,8 +48,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       if (decoded) {
         // Store username if JWT is valid
-
+        this.userSockets.set(decoded.username, client);
         this.onlineUsers.add(decoded.username);
+        console.log(`Client ${client.id} connected as ${decoded.username}`);
         console.log(`Client connected: ${decoded.username}`);
 
         this.emitUserList();
@@ -67,8 +70,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const decoded = this.jwtService.verify(token, {
           secret: process.env.JWT_SECRET,
         });
+        this.userSockets.delete(decoded.username); // Remove user from map
 
         this.onlineUsers.delete(decoded.username);
+        console.log(`Client disconnected: ${decoded.username}`);
       } catch (error) {
         // ... error handling (optional) - client was probably not authenticated
         console.log('Error during disconnection:', error);
@@ -109,24 +114,47 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { to: string },
     @ConnectedSocket() client: Socket,
   ) {
-    console.log('data',data)
-    console.log('client.id',client.id)
+    console.log('data', data);
+    console.log('client.id', client.id);
     try {
       const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
 
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
-
+      if (!decoded) {
+        throw new Error('Invalid token');
+      }
       // Log the username sending the invite
-      
-      console.log(decoded.username, 'sending invite to', data.to);
-      const { to } = data;
-      // Emit receiveInvite to the specific user using their socket ID
-        client.to(to).emit('receiveInvite', { from: decoded.username })
-        console.log('log after emit received')
+      const recipientSocket = this.userSockets.get(data.to);
+      console.log('Recipient socket:', recipientSocket?.id);
+      if (recipientSocket) {
+        recipientSocket.emit('receiveInvite', { from: decoded.username });
+
+        client.emit('inviteResponse', {
+          // Respond to sender
+          success: true,
+          message: 'Invite sent successfully',
+          to: data.to,
+        });
+
+        console.log(`Invite from ${decoded.username} sent to ${data.to}`);
+      } else {
+        client.emit('inviteResponse', {
+          // Respond to sender with error
+          success: false,
+          message: 'User not found or offline',
+          to: data.to,
+        });
+        console.log(`User ${data.to} not found or offline.`);
+      }
     } catch (error) {
-      console.log('error in sendinvite subscribe gateway',error)
+      console.error('Error in sendInvite:', error); // Detailed error logging
+      client.emit('inviteResponse', {
+        success: false,
+        message: error.message, // Send specific error message
+        to: data.to,
+      });
       client.disconnect();
     }
   }

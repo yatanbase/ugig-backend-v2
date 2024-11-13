@@ -1,6 +1,6 @@
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.controller.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\auth.controller.ts
 import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreatePlayerDto } from '../player/dto/create-player.dto'; // Create this DTO
@@ -33,7 +33,7 @@ export class AuthController {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.module.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\auth.module.ts
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller'; // Create this next
@@ -63,7 +63,7 @@ export class AuthModule {}
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\auth.service.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\auth.service.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -139,7 +139,7 @@ export class AuthService {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\jwt.strategy.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\jwt.strategy.ts
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
@@ -170,7 +170,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\local-auth.guard.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\local-auth.guard.ts
 import { Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -179,7 +179,7 @@ export class LocalAuthGuard extends AuthGuard('local') {}
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\auth\local.strategy.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\auth\local.strategy.ts
 import { Strategy } from 'passport-local';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
@@ -202,7 +202,7 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\dto\create-player.dto.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\player\dto\create-player.dto.ts
 import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class CreatePlayerDto {
@@ -222,7 +222,7 @@ export class CreatePlayerDto {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.entity.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\player\player.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity()
@@ -244,7 +244,7 @@ export class Player {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.module.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\player\player.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Player } from './player.entity';
@@ -259,7 +259,7 @@ export class PlayerModule {}
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\player\player.service.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\player\player.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -297,7 +297,7 @@ export class PlayerService {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.controller.spec.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\app.controller.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -323,7 +323,7 @@ describe('AppController', () => {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.controller.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\app.controller.ts
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 
@@ -339,7 +339,7 @@ export class AppController {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.module.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\app.module.ts
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { JwtModule } from '@nestjs/jwt';
@@ -381,7 +381,7 @@ export class AppModule {}
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\app.service.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\app.service.ts
 import { Injectable } from '@nestjs/common';
 
 @Injectable()
@@ -393,7 +393,7 @@ export class AppService {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\game.gateway.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\game.gateway.ts
 // game.gateway.ts
 import {
   SubscribeMessage,
@@ -455,11 +455,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
   handleDisconnect(@ConnectedSocket() client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
+    // Remove user from onlineUsers if present. Use username from JWT if possible.
+    if (client.handshake.headers.authorization) {
+      try {
+        const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
 
-    //   const gameId = this.onlineUsers.get(client.id);
-    this.onlineUsers.delete(client.id);
-    this.emitUserList(); // Remove the user and update the list
+        const decoded = this.jwtService.verify(token, {
+          secret: process.env.JWT_SECRET,
+        });
+
+        this.onlineUsers.delete(decoded.username);
+      } catch (error) {
+        // ... error handling (optional) - client was probably not authenticated
+        console.log('Error during disconnection:', error);
+      }
+    }
+    this.emitUserList();
+    console.log(`Client disconnected: ${client.id}`);
+    // Remove the user and update the list
   }
 
   //   @SubscribeMessage('joinGame')
@@ -487,9 +500,84 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.emitUserList(); // Emit the general user list to all clients
   }
 
+  @SubscribeMessage('sendInvite')
+  handleSendInvite(
+    @MessageBody() data: { to: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    console.log('data',data)
+    console.log('client.id',client.id)
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      // Log the username sending the invite
+      
+      console.log(decoded.username, 'sending invite to', data.to);
+      const { to } = data;
+      // Emit receiveInvite to the specific user using their socket ID
+        client.to(to).emit('receiveInvite', { from: decoded.username })
+        console.log('log after emit received')
+    } catch (error) {
+      console.log('error in sendinvite subscribe gateway',error)
+      client.disconnect();
+    }
+  }
+
+  @SubscribeMessage('acceptInvite')
+  async handleAcceptInvite(
+    @MessageBody() data: { from: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1];
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const roomId = `room-${data.from}-${decoded.username}`; // Create room ID using usernames
+      console.log('Room ID created: ', roomId);
+      client.join(roomId);
+      client.to(data.from).emit('joinRoom', { roomId }); // Tell 'from' user to join
+
+      return roomId; // Return roomId
+    } catch (error) {
+      console.error('Error accepting invite', error);
+      client.disconnect();
+    }
+  }
+
+  @SubscribeMessage('joinRoom')
+  handleJoinRoom(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const token = client.handshake.headers.authorization?.split(' ')[1];
+
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const { roomId } = data;
+
+      client.join(roomId);
+      console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
+
+      client.emit('joinedRoom', { roomId });
+      client.to(roomId).emit('joinedRoom', { roomId });
+    } catch (error) {
+      client.disconnect();
+    }
+  }
+
   @SubscribeMessage('selectCell')
   handleSelectCell(
-    @MessageBody() cell: string,
+    @MessageBody() data: { cell: string; roomId: string },
     @ConnectedSocket() client: Socket,
   ) {
     try {
@@ -499,10 +587,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
       // Now emits username instead of client ID
 
-      client.broadcast.emit('cellSelected', {
-        cell,
-        username: decoded.username,
-      });
+      client
+        .to(data.roomId)
+        .emit('cellSelected', { cell: data.cell, username: decoded.username });
     } catch (error) {
       client.disconnect();
     }
@@ -511,27 +598,27 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\main.ts
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { GameGateway } from './game.gateway'; // Adjust the path as necessary
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\main.ts
+  import { NestFactory } from '@nestjs/core';
+  import { AppModule } from './app.module';
+  import { GameGateway } from './game.gateway'; // Adjust the path as necessary
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.enableCors({
-    origin: process.env.FRONTEND_URL,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-  });
-  const gameGatewayInstances = app.get(GameGateway);
-  console.log('GameGateway Instances:', gameGatewayInstances); // Inspect in console
-  await app.listen(process.env.PORT ?? 4000);
-}
-bootstrap();
+  async function bootstrap() {
+    const app = await NestFactory.create(AppModule);
+    app.enableCors({
+      origin: process.env.FRONTEND_URL,
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
+    });
+    const gameGatewayInstances = app.get(GameGateway);
+    console.log('GameGateway Instances:', gameGatewayInstances); // Inspect in console
+    await app.listen(process.env.PORT ?? 4000);
+  }
+  bootstrap();
 
 
 
-// File: \Wisflux\Internship Assignments\UGIG self draft\ugig-backend\src\typeorm.config.ts
+// File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\typeorm.config.ts
 import { DataSource } from 'typeorm';
 import { Player } from './player/player.entity'; // We'll create this entity shortly
 

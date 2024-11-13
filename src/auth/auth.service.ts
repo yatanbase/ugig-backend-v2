@@ -56,17 +56,26 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const payload = {
-      username: user.username,
-      email: user.email,
-      sub: user.id,
-    };
+    // const payload = {
+    //   username: user.username,
+    //   email: user.email,
+    //   sub: user.id,
+    // };
+    // console.log('payload in login service',  'no payload'); // Include user id (sub)
     console.log('jwt in login service', process.env.JWT_SECRET); // Include user id (sub)
     console.log('jwt in login service', this.configService.get('JWT_SECRET')); // Include user id (sub)
     return {
-      access_token: this.jwtService.sign(payload, {
-        secret: this.configService.get('JWT_SECRET'),
-      }),
+      access_token: this.jwtService.sign(
+        {
+          username: user.username,
+          email: user.email,
+          sub: user.id,
+        },
+        {
+          secret: this.configService.get('JWT_SECRET'),
+        },
+      ),
+      username: user.username,
     };
   }
 }
