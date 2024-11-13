@@ -45,9 +45,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       console.log('here', decoded);
-
       if (decoded) {
-        // Store username if JWT is valid
+        // Check if the username already has an active connection
+        if (this.userSockets.has(decoded.username)) {
+          console.log(
+            `Username ${decoded.username} already has an active connection. Disconnecting new client ${client.id}`,
+          );
+          client.disconnect();
+          return;
+        }
+
+        // Store username if JWT is valid and no active connection exists
         this.userSockets.set(decoded.username, client);
         this.onlineUsers.add(decoded.username);
         console.log(`Client ${client.id} connected as ${decoded.username}`);
@@ -175,8 +183,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const roomId = `room-${data.from}-${decoded.username}`; // Create room ID using usernames
       console.log('Room ID created: ', roomId);
       client.join(roomId);
-      client.to(data.from).emit('joinRoom', { roomId }); // Tell 'from' user to join
-
+      console.log(
+        `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
+      ); // Log with username
+      const joinroomrecipientSocket = this.userSockets.get(data.from);
+      console.log('joinroomrecipientSocket', joinroomrecipientSocket);
+      client.to(joinroomrecipientSocket.id).emit('joinRoom', { roomId }); // Tell 'from' user to join
+      console.log(`${joinroomrecipientSocket} ko send kiya joinRoom `);
       return roomId; // Return roomId
     } catch (error) {
       console.error('Error accepting invite', error);
