@@ -227,6 +227,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     try {
+      console.log('data in selectCell subscribe', data);
       const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
@@ -236,6 +237,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client
         .to(data.roomId)
         .emit('cellSelected', { cell: data.cell, username: decoded.username });
+      console.log(
+        'log after selectCell subscribe ends and cellSelected emitted',
+      );
     } catch (error) {
       client.disconnect();
     }
