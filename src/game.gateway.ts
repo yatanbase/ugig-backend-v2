@@ -164,6 +164,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { from: string },
     @ConnectedSocket() client: Socket,
   ) {
+    console.log('Accepting invite from:', data.from);
     try {
       const token = client.handshake.headers.authorization?.split(' ')[1];
 
