@@ -109,6 +109,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { to: string },
     @ConnectedSocket() client: Socket,
   ) {
+    console.log('data',data)
+    console.log('client.id',client.id)
     try {
       const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
 
@@ -117,12 +119,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       // Log the username sending the invite
-
+      
       console.log(decoded.username, 'sending invite to', data.to);
       const { to } = data;
       // Emit receiveInvite to the specific user using their socket ID
-      client.to(to).emit('receiveInvite', { from: decoded.username });
+        client.to(to).emit('receiveInvite', { from: decoded.username })
+        console.log('log after emit received')
     } catch (error) {
+      console.log('error in sendinvite subscribe gateway',error)
       client.disconnect();
     }
   }
