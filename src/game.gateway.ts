@@ -189,7 +189,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const joinroomrecipientSocket = this.userSockets.get(data.from);
       console.log('joinroomrecipientSocket', joinroomrecipientSocket);
       client.to(joinroomrecipientSocket.id).emit('joinRoom', { roomId }); // Tell 'from' user to join
-      console.log(`${joinroomrecipientSocket} ko send kiya joinRoom `);
+      console.log(`${joinroomrecipientSocket.id} ko send kiya joinRoom `);
       return roomId; // Return roomId
     } catch (error) {
       console.error('Error accepting invite', error);
