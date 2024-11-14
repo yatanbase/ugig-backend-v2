@@ -13,7 +13,7 @@ import { GamesService } from './games/games.service';
 import { Server, Socket } from 'socket.io';
 import { MoveType } from './moves/moves.entity';
 import { MovesService } from './moves/moves.service';
-
+import { In } from 'typeorm';
 @WebSocketGateway({
   cors: {
     origin: '*', // Adjust for production
@@ -275,6 +275,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`[createTurn] Retrieved moves for gameId: ${gameId}`, moves);
     let selector: string;
     let predictor: string;
+    let disabledCells: string[] = [];
 
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
@@ -283,13 +284,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .getGame(gameId)
         .then((g) => g.players.map((p) => p.username));
       console.log(`[createTurn] Players in gameId: ${gameId}`, players);
-
       const randomIndex = Math.floor(Math.random() * 2);
       selector = players[randomIndex];
       predictor = players[1 - randomIndex];
       console.log(
         `[createTurn] Randomly assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
+      disabledCells = [];
 
       // await this.movesService.createMove(
       //   gameId,
@@ -330,12 +331,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // console.log(
       //   `[createTurn] Created move for selector: ${selector} in gameId: ${gameId}`,
       // );
+      disabledCells = moves
+        .filter((move) => {
+          move.type === MoveType.SELECT;
+        })
+        .map((move) => move.tilePosition);
     }
 
     // Emit 'turn' event with roles
-    this.server.to(roomId).emit('turn', { selector, predictor, gameId });
+    this.server
+      .to(roomId)
+      .emit('turn', { selector, predictor, gameId, disabledCells });
     console.log(
-      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}`,
+      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells}`,
     );
   }
   @SubscribeMessage('selectCell')
@@ -361,6 +369,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         cell,
         MoveType.SELECT,
       );
+      this.updateDisabledCells(roomId, gameId);
 
       // Emit cell selection to room
       client.to(roomId).emit('cellSelected', { cell, username });
@@ -376,6 +385,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       client.disconnect();
     }
+  }
+
+  async updateDisabledCells(roomId: string, gameId: number) {
+    const moves = await this.movesService.getMovesByGame(gameId);
+    const diabledCells = moves
+      .filter((move) => {
+        move.type === MoveType.SELECT;
+      })
+      .map((move) => move.tilePosition);
+    this.server
+      .to(roomId)
+      .emit('updateDisabledCells', { disabledCells: diabledCells });
   }
 
   @SubscribeMessage('predictCell')
