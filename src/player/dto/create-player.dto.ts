@@ -11,6 +11,14 @@ export class CreatePlayerDto {
 
   @IsNotEmpty()
   @IsString()
-  @MinLength(6, { message: 'Password must be at least 6 characters' }) // Example validation
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
   password: string;
+
+  @IsNotEmpty()
+  createdAt: Date;
+
+  @IsNotEmpty()
+  updatedAt: Date;
+
+  deletedAt: Date | null;
 }

@@ -9,6 +9,13 @@ import { GameGateway } from './game.gateway';
 import { AuthModule } from './auth/auth.module'; // Correctly import AuthModule
 import { Player } from './player/player.entity';
 import { PlayerService } from './player/player.service';
+import { GamesModule } from './games/games.module';
+import { PlayerModule } from './player/player.module'; // Import PlayerModule
+import { Game } from './games/entities/game.entity';
+
+import { GamesService } from './games/games.service';
+import { Move } from './moves/moves.entity';
+import { MovesModule } from './moves/moves.module';
 
 @Module({
   imports: [
@@ -20,9 +27,10 @@ import { PlayerService } from './player/player.service';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [Player],
+        entities: [Player, Game, Move],
         synchronize: true,
       }),
+
       inject: [ConfigService],
     }),
     TypeOrmModule.forFeature([Player]),
@@ -31,7 +39,11 @@ import { PlayerService } from './player/player.service';
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1d' },
     }),
+    GamesModule,
+    PlayerModule,
+    MovesModule,
   ],
+
   controllers: [AppController],
   providers: [AppService, GameGateway, PlayerService],
 })

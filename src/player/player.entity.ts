@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  OneToMany,
+  ManyToMany,
+  JoinTable,
+} from 'typeorm';
+import { Game } from '../games/entities/game.entity';
+import { Move } from '../moves/moves.entity';
 
 @Entity()
 export class Player {
@@ -14,5 +23,25 @@ export class Player {
   @Column({ unique: true })
   username: string;
 
-  // ... other fields (createdAt, updatedAt, deletedAt) can be added
+  @OneToMany(() => Move, (move) => move.player) // Relationship to Move
+  moves: Move[];
+
+  @OneToMany(() => Game, (game) => game.winnerPlayer) // One-to-many relationship: A player can win multiple games
+  wonGames: Game[];
+
+  @ManyToMany(() => Game, (game) => game.players)
+  games: Game[];
+
+  // @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  // createdAt: Date;
+
+  // @Column({
+  //   type: 'timestamp',
+  //   default: () => 'CURRENT_TIMESTAMP',
+  //   onUpdate: 'CURRENT_TIMESTAMP',
+  // })
+  // updatedAt: Date;
+
+  // @Column({ type: 'timestamp', nullable: true })
+  // deletedAt: Date;
 }
