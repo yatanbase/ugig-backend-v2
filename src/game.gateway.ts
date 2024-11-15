@@ -372,10 +372,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         cell,
         MoveType.SELECT,
       );
-      this.updateDisabledCells(roomId, gameId);
+      // this.updateDisabledCells(roomId, gameId);
 
       // Emit cell selection to room
-      client.to(roomId).emit('cellSelected', { cell, username });
+      // client.to(roomId).emit('cellSelected', { cell, username });
 
       // Enable prediction phase
       this.server.to(roomId).emit('enablePrediction', {
