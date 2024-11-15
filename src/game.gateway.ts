@@ -16,6 +16,7 @@ import { MovesService } from './moves/moves.service';
 import { In, Repository } from 'typeorm';
 import { Player } from './player/player.entity'; //create this entity
 import { InjectRepository } from '@nestjs/typeorm';
+import { GameState } from './games/entities/game.entity'; // Import GameState
 
 @WebSocketGateway({
   cors: {
@@ -93,6 +94,25 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         this.onlineUsers.delete(decoded.username);
         console.log(`Client disconnected: ${decoded.username}`);
+
+        const opponentSocket = Array.from(this.userSockets.values()).filter(
+          (s) => s.id !== client.id && s.rooms.has(roomId),
+        );
+
+        //  const game = await this.gamesService.getGame(gameId);
+        //  const opponentUsername = game?.players.find(p => p.username !== decoded.username)?.username
+
+        if (opponentSocket.length) {
+          // if oponent in the room, set as winner, set game state to gameover, then disconnect
+          this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
+          this.gamesService.setWinner(
+            gameId,
+            opponentSocket[0].handshake.auth.username,
+          ); // Store the winner in the database
+          this.server.to(roomId).emit('gameOver', {
+            winner: opponentSocket[0].handshake.auth.username,
+          });
+        }
       } catch (error) {
         // ... error handling (optional) - client was probably not authenticated
         console.log('Error during disconnection:', error);
@@ -282,6 +302,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     let predictor: string;
     let disabledCells: string[] = [];
     let scores: Record<string, number> = {};
+    let winner: string | null = null;
+    let gameOver = false;
 
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
@@ -369,6 +391,35 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         disabledCells,
         moves,
       );
+    }
+    const remainingCells = 64 - disabledCells.length;
+    const [player1Username, player2Username] = Object.keys(scores);
+    const scoreDifference = Math.abs(
+      scores[player1Username] - scores[player2Username],
+    );
+
+    if (scoreDifference > remainingCells) {
+      winner =
+        scores[player1Username] > scores[player2Username]
+          ? player1Username
+          : player2Username;
+      gameOver = true;
+    } else if (remainingCells === 0) {
+      winner =
+        scores[player1Username] > scores[player2Username]
+          ? player1Username
+          : player2Username;
+      gameOver = true;
+    }
+
+    if (gameOver) {
+      // Update game state and set winner in database
+      await this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
+      console.log(`[createTurn] Game over for gameId: ${gameId}`);
+      await this.gamesService.setWinner(gameId, winner); // Store the winner in the database
+      console.log(`[createTurn] Winner set for gameId: ${gameId}`, winner);
+      this.server.to(roomId).emit('gameOver', { winner, scores });
+      return; // Don't emit 'turn' event if game is over
     }
 
     // Emit 'turn' event with roles
