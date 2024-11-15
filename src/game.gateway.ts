@@ -332,10 +332,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       //   `[createTurn] Created move for selector: ${selector} in gameId: ${gameId}`,
       // );
       disabledCells = moves
-        .filter((move) => {
-          move.type === MoveType.SELECT;
-        })
+        .filter((move) => move.type === 'select')
         .map((move) => move.tilePosition);
+      console.log(
+        'disabledCells in createTurn fn else part',
+        disabledCells,
+        moves,
+      );
     }
 
     // Emit 'turn' event with roles
@@ -389,14 +392,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async updateDisabledCells(roomId: string, gameId: number) {
     const moves = await this.movesService.getMovesByGame(gameId);
-    const diabledCells = moves
-      .filter((move) => {
-        move.type === MoveType.SELECT;
-      })
+    const disabledCells = moves
+      .filter((move) => move.type === MoveType.SELECT)
       .map((move) => move.tilePosition);
+    console.log('disabledCells in updateDisabledCells fn', disabledCells);
     this.server
       .to(roomId)
-      .emit('updateDisabledCells', { disabledCells: diabledCells });
+      .emit('updateDisabledCells', { disabledCells: disabledCells });
   }
 
   @SubscribeMessage('predictCell')

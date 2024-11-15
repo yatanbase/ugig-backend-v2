@@ -824,7 +824,7 @@ import { GamesService } from './games/games.service';
 import { Server, Socket } from 'socket.io';
 import { MoveType } from './moves/moves.entity';
 import { MovesService } from './moves/moves.service';
-
+import { In } from 'typeorm';
 @WebSocketGateway({
   cors: {
     origin: '*', // Adjust for production
@@ -1086,6 +1086,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`[createTurn] Retrieved moves for gameId: ${gameId}`, moves);
     let selector: string;
     let predictor: string;
+    let disabledCells: string[] = [];
 
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
@@ -1094,13 +1095,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .getGame(gameId)
         .then((g) => g.players.map((p) => p.username));
       console.log(`[createTurn] Players in gameId: ${gameId}`, players);
-
       const randomIndex = Math.floor(Math.random() * 2);
       selector = players[randomIndex];
       predictor = players[1 - randomIndex];
       console.log(
         `[createTurn] Randomly assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
+      disabledCells = [];
 
       // await this.movesService.createMove(
       //   gameId,
@@ -1115,16 +1116,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log(`[createTurn] Subsequent turn for gameId: ${gameId}`);
       // all other turns
 
-      const lastMove = moves[moves.length - 1];
+      const sortedMoves = moves.sort((a, b) => b.moveId - a.moveId);
+      const lastMove = sortedMoves[0]; // Get the most recent move
       console.log(`[createTurn] Last move for gameId: ${gameId}`, lastMove);
+
       const players = await this.gamesService
         .getGame(gameId)
         .then((g) => g.players.map((p) => p.username));
       console.log(`[createTurn] Players in gameId: ${gameId}`, players);
+
       selector =
-        lastMove.player.username === players[0] ? players[1] : players[0];
-      predictor =
         lastMove.player.username === players[0] ? players[0] : players[1];
+      predictor =
+        lastMove.player.username === players[0] ? players[1] : players[0];
       console.log(
         `[createTurn] Assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
@@ -1138,15 +1142,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // console.log(
       //   `[createTurn] Created move for selector: ${selector} in gameId: ${gameId}`,
       // );
+      disabledCells = moves
+        .filter((move) => move.type === 'select')
+        .map((move) => move.tilePosition);
+      console.log(
+        'disabledCells in createTurn fn else part',
+        disabledCells,
+        moves,
+      );
     }
 
     // Emit 'turn' event with roles
-    this.server.to(roomId).emit('turn', { selector, predictor, gameId });
+    this.server
+      .to(roomId)
+      .emit('turn', { selector, predictor, gameId, disabledCells });
     console.log(
-      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}`,
+      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells}`,
     );
   }
-
   @SubscribeMessage('selectCell')
   async handleSelectCell(
     @MessageBody() data: { cell: string; roomId: string; username: string },
@@ -1154,28 +1167,75 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       console.log('data in selectCell subscribe', data);
-      const token = client.handshake.headers.authorization?.split(' ')[1]; // "Bearer <token>"
+      const token = client.handshake.headers.authorization?.split(' ')[1];
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
-      // Now emits username instead of client ID
+
       const gameId = client.data.gameId;
       const { cell, roomId, username } = data;
       console.log('gameId in handleSelectCell', gameId);
+
+      // Create selection move
       const move = await this.movesService.createMove(
         gameId,
         username,
         cell,
         MoveType.SELECT,
       );
+      this.updateDisabledCells(roomId, gameId);
 
-      client
-        .to(data.roomId)
-        .emit('cellSelected', { cell: data.cell, username });
-      console.log(
-        'log after selectCell subscribe ends and cellSelected emitted',
+      // Emit cell selection to room
+      client.to(roomId).emit('cellSelected', { cell, username });
+
+      // Enable prediction phase
+      this.server.to(roomId).emit('enablePrediction', {
+        selector: username,
+        cell,
+        gameId,
+      });
+
+      console.log('Selection phase complete, prediction enabled');
+    } catch (error) {
+      client.disconnect();
+    }
+  }
+
+  async updateDisabledCells(roomId: string, gameId: number) {
+    const moves = await this.movesService.getMovesByGame(gameId);
+    const disabledCells = moves
+      .filter((move) => move.type === MoveType.SELECT)
+      .map((move) => move.tilePosition);
+    console.log('disabledCells in updateDisabledCells fn', disabledCells);
+    this.server
+      .to(roomId)
+      .emit('updateDisabledCells', { disabledCells: disabledCells });
+  }
+
+  @SubscribeMessage('predictCell')
+  async handlePredictCell(
+    @MessageBody() data: { cell: string; roomId: string; username: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const gameId = client.data.gameId;
+      const { cell, roomId, username } = data;
+
+      // Create prediction move
+      const move = await this.movesService.createMove(
+        gameId,
+        username,
+        cell,
+        MoveType.PREDICT,
       );
-      this.createTurn(roomId, gameId, username); // creates next turn
+
+      // Emit prediction to room
+      client.to(roomId).emit('cellPredicted', { cell, username });
+
+      // Create next turn after prediction
+      this.createTurn(roomId, gameId, username);
+
+      console.log('Prediction complete, next turn created');
     } catch (error) {
       client.disconnect();
     }
