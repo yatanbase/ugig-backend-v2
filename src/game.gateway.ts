@@ -13,7 +13,10 @@ import { GamesService } from './games/games.service';
 import { Server, Socket } from 'socket.io';
 import { MoveType } from './moves/moves.entity';
 import { MovesService } from './moves/moves.service';
-import { In } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { Player } from './player/player.entity'; //create this entity
+import { InjectRepository } from '@nestjs/typeorm';
+
 @WebSocketGateway({
   cors: {
     origin: '*', // Adjust for production
@@ -26,6 +29,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly gamesService: GamesService,
     private readonly movesService: MovesService, // Inject
+    @InjectRepository(Player)
+    private playerRepository: Repository<Player>, // Inject Player repository
   ) {
     console.log(' server instance in GameGateway', this.server);
   }
@@ -276,6 +281,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     let selector: string;
     let predictor: string;
     let disabledCells: string[] = [];
+    let scores: Record<string, number> = {};
 
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
@@ -291,7 +297,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `[createTurn] Randomly assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
       disabledCells = [];
-
+      scores = players.reduce(
+        (acc, playerUsername) => {
+          // Calculate scores
+          acc[playerUsername] = moves.filter(
+            (move) =>
+              move.player.username === playerUsername && // Filter moves for the current player
+              move.type === MoveType.PREDICT && // Only consider prediction moves
+              move.isCorrect, // Correct predictions
+          ).length;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       // await this.movesService.createMove(
       //   gameId,
       //   selector,
@@ -321,7 +339,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log(
         `[createTurn] Assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
-
+      scores = players.reduce(
+        (acc, playerUsername) => {
+          // Calculate scores
+          acc[playerUsername] = moves.filter(
+            (move) =>
+              move.player.username === playerUsername && // Filter moves for the current player
+              move.type === MoveType.PREDICT && // Only consider prediction moves
+              move.isCorrect, // Correct predictions
+          ).length;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       // await this.movesService.createMove(
       //   gameId,
       //   selector,
@@ -344,9 +374,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Emit 'turn' event with roles
     this.server
       .to(roomId)
-      .emit('turn', { selector, predictor, gameId, disabledCells });
+      .emit('turn', { selector, predictor, gameId, disabledCells, scores });
     console.log(
-      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells}`,
+      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells} and scores: ${scores}`,
     );
   }
   @SubscribeMessage('selectCell')
@@ -408,7 +438,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const gameId = client.data.gameId;
+
       const { cell, roomId, username } = data;
+
+      const game = await this.gamesService.getGame(gameId);
+      const moves = await this.movesService.getMovesByGame(gameId);
+      const sortedMoves = moves.sort((a, b) => b.moveId - a.moveId);
+      const lastMove = sortedMoves[0]; // Get the last move (selection move)
 
       // Create prediction move
       const move = await this.movesService.createMove(
@@ -420,12 +456,55 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit prediction to room
       client.to(roomId).emit('cellPredicted', { cell, username });
+      // First, find the Player entity using the username:
+      // const player = await this.playerRepository.findOneBy({ username });
+
+      // if (!player) {
+      //   throw new Error(`Player with username "${username}" not found.`);
+      // }
+      const isCorrect = lastMove.tilePosition === cell; // Check if prediction is correct
+      // ********* SCORE MANAGEMENT ********
+      // if (isCorrect) {
+      //   console.log('type of game id', typeof gameId, gameId);
+      //   const gamePlayer = await this.gamePlayerRepository
+      //     .createQueryBuilder('gp') // Alias the GamePlayer table
+      //     .innerJoinAndSelect('gp.player', 'player') // Join with Player table
+      //     .where('gp.game.gameId = :gameId', { gameId }) // Condition for game
+      //     .andWhere('player.username = :username', { username }) // Condition for player
+      //     .getOne();
+      //   console.log('gamePlayer in handlePredictCell', gamePlayer);
+      //   if (gamePlayer) {
+      //     gamePlayer.score++;
+      //     await this.gamePlayerRepository.save(gamePlayer);
+
+      //     // Emit the updated scores for all players in the game
+      //     const gamePlayers =
+      //       await this.gamesService.getGamePlayersByGame(gameId);
+      //     const updatedScores = gamePlayers.reduce(
+      //       (acc, gp) => {
+      //         acc[gp.player.username] = gp.score;
+      //         return acc;
+      //       },
+      //       {} as Record<string, number>,
+      //     );
+      //     console.log('updatedScores in handlePredictCell', updatedScores);
+      //     this.server.to(roomId).emit('scoreUpdate', updatedScores);
+      //     console.log('Score updated and emitted', updatedScores);
+      //   }
+      // }
+      // ********* END SCORE MANAGEMENT ********
+
+      await this.movesService.updateMove(move.moveId, { isCorrect }); // Update move with isCorrect value. IMPORTANT: You'll need to implement updateMove in moves.service
+
+      // Emit prediction result (correct/incorrect) to the room
+      this.server.to(roomId).emit('predictionResult', { username, isCorrect });
 
       // Create next turn after prediction
       this.createTurn(roomId, gameId, username);
 
       console.log('Prediction complete, next turn created');
     } catch (error) {
+      console.log('error in handlePredictCell', error);
       client.disconnect();
     }
   }

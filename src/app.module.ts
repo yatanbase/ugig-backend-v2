@@ -29,11 +29,12 @@ import { MovesModule } from './moves/moves.module';
         url: configService.get<string>('DATABASE_URL'),
         entities: [Player, Game, Move],
         synchronize: true,
+        emitDecoratorMetadata: true,
       }),
 
       inject: [ConfigService],
     }),
-    TypeOrmModule.forFeature([Player]),
+    TypeOrmModule.forFeature([Player, Game, Move]),
     AuthModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,

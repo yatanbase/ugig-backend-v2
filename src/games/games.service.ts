@@ -64,6 +64,7 @@ export class GamesService {
 
     return this.gameRepository.save(game);
   }
+  // In your GamesService (games.service.ts):
 
   // ... other methods (e.g., for updating game details, finding games by player, etc.)
 }

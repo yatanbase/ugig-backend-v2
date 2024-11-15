@@ -44,4 +44,12 @@ export class MovesService {
       relations: ['player'],
     }); // Find by gameId
   }
+  async updateMove(moveId: number, updateData: Partial<Move>): Promise<Move> {
+    const move = await this.moveRepository.findOneBy({ moveId });
+    if (!move) {
+      throw new Error('Move not found');
+    }
+    Object.assign(move, updateData); // Update the move data
+    return this.moveRepository.save(move);
+  }
 }
