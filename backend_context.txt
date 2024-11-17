@@ -434,17 +434,29 @@ export class GamesService {
   }
 
   async updateGameState(gameId: number, state: GameState): Promise<Game> {
+    console.log(
+      `updateGameState called with gameId: ${gameId}, state: ${state}`,
+    );
     const game = await this.getGame(gameId);
     if (!game) {
+      console.error(`Game with id ${gameId} not found`);
       throw new Error('Game not found');
     }
     game.state = state;
-    return this.gameRepository.save(game);
+    const updatedGame = await this.gameRepository.save(game);
+    console.log(
+      `Game state updated successfully for gameId: ${gameId}, new state: ${state}`,
+    );
+    return updatedGame;
   }
 
   async setWinner(gameId: number, winnerUsername: string): Promise<Game> {
+    console.log(
+      `setWinner called with gameId: ${gameId}, winnerUsername: ${winnerUsername}`,
+    );
     const game = await this.getGame(gameId);
     if (!game) {
+      console.error(`Game with id ${gameId} not found`);
       throw new Error('Game not found');
     }
 
@@ -452,12 +464,18 @@ export class GamesService {
       username: winnerUsername,
     });
     if (!winnerPlayer) {
+      console.error(`Winner player with username ${winnerUsername} not found`);
       throw new Error('Winner player not found');
     }
     game.winnerPlayer = winnerPlayer; // Set the winnerPlayer relation
 
-    return this.gameRepository.save(game);
+    const updatedGame = await this.gameRepository.save(game);
+    console.log(
+      `Winner set successfully for gameId: ${gameId}, winnerUsername: ${winnerUsername}`,
+    );
+    return updatedGame;
   }
+  // In your GamesService (games.service.ts):
 
   // ... other methods (e.g., for updating game details, finding games by player, etc.)
 }
@@ -563,6 +581,14 @@ export class MovesService {
       where: { game: { gameId } },
       relations: ['player'],
     }); // Find by gameId
+  }
+  async updateMove(moveId: number, updateData: Partial<Move>): Promise<Move> {
+    const move = await this.moveRepository.findOneBy({ moveId });
+    if (!move) {
+      throw new Error('Move not found');
+    }
+    Object.assign(move, updateData); // Update the move data
+    return this.moveRepository.save(move);
   }
 }
 
@@ -774,11 +800,12 @@ import { MovesModule } from './moves/moves.module';
         url: configService.get<string>('DATABASE_URL'),
         entities: [Player, Game, Move],
         synchronize: true,
+        emitDecoratorMetadata: true,
       }),
 
       inject: [ConfigService],
     }),
-    TypeOrmModule.forFeature([Player]),
+    TypeOrmModule.forFeature([Player, Game, Move]),
     AuthModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
@@ -824,7 +851,11 @@ import { GamesService } from './games/games.service';
 import { Server, Socket } from 'socket.io';
 import { MoveType } from './moves/moves.entity';
 import { MovesService } from './moves/moves.service';
-import { In } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { Player } from './player/player.entity'; //create this entity
+import { InjectRepository } from '@nestjs/typeorm';
+import { GameState } from './games/entities/game.entity'; // Import GameState
+
 @WebSocketGateway({
   cors: {
     origin: '*', // Adjust for production
@@ -837,6 +868,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly gamesService: GamesService,
     private readonly movesService: MovesService, // Inject
+    @InjectRepository(Player)
+    private playerRepository: Repository<Player>, // Inject Player repository
   ) {
     console.log(' server instance in GameGateway', this.server);
   }
@@ -886,7 +919,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.disconnect();
     }
   }
-  handleDisconnect(@ConnectedSocket() client: Socket) {
+  async handleDisconnect(@ConnectedSocket() client: Socket) {
     // Remove user from onlineUsers if present. Use username from JWT if possible.
     if (client.handshake.headers.authorization) {
       try {
@@ -895,18 +928,36 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const decoded = this.jwtService.verify(token, {
           secret: process.env.JWT_SECRET,
         });
-        this.userSockets.delete(decoded.username); // Remove user from map
 
+        const roomId = client.data.roomId;
+        const gameId = client.data.gameId;
+        const opponentSocket = Array.from(this.userSockets.values()).filter(
+          (s) => s.id !== client.id && s.rooms.has(roomId),
+        );
+
+        const roomSockets = await this.server.in(roomId).fetchSockets();
+        console.log('roomSockets', roomSockets);
+
+        roomSockets.forEach((s) => {
+          if (s.id !== client.id) {
+            console.log('disconnecting other user');
+            this.server.to(s.id).emit('gameOver', { winner: s.data.username });
+            this.gamesService.updateGameState(gameId, GameState.GAME_OVER);
+            this.gamesService.setWinner(gameId, s.data.username);
+          }
+        });
+
+        console.log(`deleting ${decoded.username} from userSockets`);
+        this.userSockets.delete(decoded.username);
         this.onlineUsers.delete(decoded.username);
         console.log(`Client disconnected: ${decoded.username}`);
       } catch (error) {
-        // ... error handling (optional) - client was probably not authenticated
         console.log('Error during disconnection:', error);
       }
     }
+
     this.emitUserList();
     console.log(`Client disconnected: ${client.id}`);
-    // Remove the user and update the list
   }
 
   //   @SubscribeMessage('joinGame')
@@ -997,7 +1048,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         secret: process.env.JWT_SECRET,
       });
 
-      const roomId = `room-${data.from}-${decoded.username}`; // Create room ID using usernames
+      const roomId = `room-${data.from}-${decoded.username}-${Date.now()}`; // Create unique room ID using usernames and timestamp
       console.log('Room ID created: ', roomId);
       const game = await this.gamesService.createGame([
         data.from,
@@ -1006,6 +1057,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       console.log('game created with players ', game.players);
       client.join(roomId);
+      client.data.roomId = roomId;
       console.log(
         `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
       ); // Log with username
@@ -1052,6 +1104,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       const { roomId } = data;
+      client.data.username = decoded.username;
 
       client.join(roomId);
       console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
@@ -1083,11 +1136,28 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `[createTurn] Starting createTurn for roomId: ${roomId}, gameId: ${gameId}, joiningUsername: ${joiningUsername}`,
     );
     const moves = await this.movesService.getMovesByGame(gameId);
-    console.log(`[createTurn] Retrieved moves for gameId: ${gameId}`, moves);
+    moves.forEach((move) => {
+      console.log(
+        `[createTurn] Retrieved move for gameId: ${gameId}`,
+        move.moveId,
+        move.tilePosition,
+        move.type,
+        move.player.username || 'someplayer',
+      );
+    });
     let selector: string;
     let predictor: string;
     let disabledCells: string[] = [];
+    let scores: Record<string, number> = {};
+    let winner: string | null = null;
+    let gameOver = false;
+    const game = await this.gamesService.getGame(gameId); // Retrieve the game entity
 
+    //  Ensure game is loaded
+    if (!game) {
+      console.error('Game not found in createTurn');
+      return; // Or handle the error appropriately
+    }
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
       // First move: randomly assign selector and predictor
@@ -1102,7 +1172,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `[createTurn] Randomly assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
       disabledCells = [];
-
+      scores = players.reduce(
+        (acc, playerUsername) => {
+          // Calculate scores
+          acc[playerUsername] = moves.filter(
+            (move) =>
+              move.player.username === playerUsername && // Filter moves for the current player
+              move.type === MoveType.PREDICT && // Only consider prediction moves
+              move.isCorrect, // Correct predictions
+          ).length;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       // await this.movesService.createMove(
       //   gameId,
       //   selector,
@@ -1132,7 +1214,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log(
         `[createTurn] Assigned selector: ${selector}, predictor: ${predictor} for gameId: ${gameId}`,
       );
-
+      scores = players.reduce(
+        (acc, playerUsername) => {
+          // Calculate scores
+          acc[playerUsername] = moves.filter(
+            (move) =>
+              move.player.username === playerUsername && // Filter moves for the current player
+              move.type === MoveType.PREDICT && // Only consider prediction moves
+              move.isCorrect, // Correct predictions
+          ).length;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       // await this.movesService.createMove(
       //   gameId,
       //   selector,
@@ -1148,16 +1242,67 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log(
         'disabledCells in createTurn fn else part',
         disabledCells,
-        moves,
+        // moves,
       );
+    }
+    const remainingCells = 64 - disabledCells.length;
+    console.log('length of remainingCells in createTurn fn', remainingCells);
+    const [player1Username, player2Username] = Object.keys(scores);
+    console.log(
+      'player1Username, player2Username',
+      player1Username,
+      player2Username,
+    );
+
+    const scoreDifference = Math.abs(
+      scores[player1Username] - scores[player2Username],
+    );
+    console.log(
+      `scoreDifference between ${player1Username} and ${player2Username}: ${scoreDifference}` ||
+        'scoreDifference not calculated',
+    );
+    if (scoreDifference > remainingCells / 2 + 1) {
+      winner =
+        scores[player1Username] > scores[player2Username]
+          ? player1Username
+          : player2Username;
+      gameOver = true;
+
+      console.log(
+        `[createTurn] in if(diff>rem) Game over for gameId: ${gameId}`,
+        `winner: ${winner}`,
+        `scores: ${scores}`,
+      );
+    } else if (remainingCells === 0) {
+      winner =
+        scores[player1Username] > scores[player2Username]
+          ? player1Username
+          : player2Username;
+      gameOver = true;
+      console.log(
+        `[createTurn] in if(rem===0) Game over for gameId: ${gameId}`,
+        `winner: ${winner}`,
+        `scores: ${scores}`,
+      );
+    }
+
+    if (gameOver) {
+      // Update game state and set winner in database
+      await this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
+      console.log(`[createTurn] Game over for gameId: ${gameId}`);
+      await this.gamesService.setWinner(gameId, winner); // Store the winner in the database
+      console.log(`[createTurn] Winner set for gameId: ${gameId}`, winner);
+      this.server.to(roomId).emit('gameOver', { winner, scores });
+      return; // Don't emit 'turn' event if game is over
     }
 
     // Emit 'turn' event with roles
     this.server
       .to(roomId)
-      .emit('turn', { selector, predictor, gameId, disabledCells });
+      .emit('turn', { selector, predictor, gameId, disabledCells, scores });
     console.log(
-      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells}`,
+      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells} and scores:`,
+      scores,
     );
   }
   @SubscribeMessage('selectCell')
@@ -1183,10 +1328,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         cell,
         MoveType.SELECT,
       );
-      this.updateDisabledCells(roomId, gameId);
+      // this.updateDisabledCells(roomId, gameId);
 
       // Emit cell selection to room
-      client.to(roomId).emit('cellSelected', { cell, username });
+      // client.to(roomId).emit('cellSelected', { cell, username });
 
       // Enable prediction phase
       this.server.to(roomId).emit('enablePrediction', {
@@ -1219,7 +1364,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const gameId = client.data.gameId;
+
       const { cell, roomId, username } = data;
+
+      const game = await this.gamesService.getGame(gameId);
+      const moves = await this.movesService.getMovesByGame(gameId);
+      const sortedMoves = moves.sort((a, b) => b.moveId - a.moveId);
+      const lastMove = sortedMoves[0]; // Get the last move (selection move)
 
       // Create prediction move
       const move = await this.movesService.createMove(
@@ -1231,12 +1382,55 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit prediction to room
       client.to(roomId).emit('cellPredicted', { cell, username });
+      // First, find the Player entity using the username:
+      // const player = await this.playerRepository.findOneBy({ username });
+
+      // if (!player) {
+      //   throw new Error(`Player with username "${username}" not found.`);
+      // }
+      const isCorrect = lastMove.tilePosition === cell; // Check if prediction is correct
+      // ********* SCORE MANAGEMENT ********
+      // if (isCorrect) {
+      //   console.log('type of game id', typeof gameId, gameId);
+      //   const gamePlayer = await this.gamePlayerRepository
+      //     .createQueryBuilder('gp') // Alias the GamePlayer table
+      //     .innerJoinAndSelect('gp.player', 'player') // Join with Player table
+      //     .where('gp.game.gameId = :gameId', { gameId }) // Condition for game
+      //     .andWhere('player.username = :username', { username }) // Condition for player
+      //     .getOne();
+      //   console.log('gamePlayer in handlePredictCell', gamePlayer);
+      //   if (gamePlayer) {
+      //     gamePlayer.score++;
+      //     await this.gamePlayerRepository.save(gamePlayer);
+
+      //     // Emit the updated scores for all players in the game
+      //     const gamePlayers =
+      //       await this.gamesService.getGamePlayersByGame(gameId);
+      //     const updatedScores = gamePlayers.reduce(
+      //       (acc, gp) => {
+      //         acc[gp.player.username] = gp.score;
+      //         return acc;
+      //       },
+      //       {} as Record<string, number>,
+      //     );
+      //     console.log('updatedScores in handlePredictCell', updatedScores);
+      //     this.server.to(roomId).emit('scoreUpdate', updatedScores);
+      //     console.log('Score updated and emitted', updatedScores);
+      //   }
+      // }
+      // ********* END SCORE MANAGEMENT ********
+
+      await this.movesService.updateMove(move.moveId, { isCorrect }); // Update move with isCorrect value. IMPORTANT: You'll need to implement updateMove in moves.service
+
+      // Emit prediction result (correct/incorrect) to the room
+      this.server.to(roomId).emit('predictionResult', { username, isCorrect });
 
       // Create next turn after prediction
       this.createTurn(roomId, gameId, username);
 
       console.log('Prediction complete, next turn created');
     } catch (error) {
+      console.log('error in handlePredictCell', error);
       client.disconnect();
     }
   }
@@ -1245,22 +1439,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
 // File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\main.ts
-  import { NestFactory } from '@nestjs/core';
-  import { AppModule } from './app.module';
-  import { GameGateway } from './game.gateway'; // Adjust the path as necessary
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { GameGateway } from './game.gateway'; // Adjust the path as necessary
+import 'reflect-metadata';
 
-  async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
-    app.enableCors({
-      origin: process.env.FRONTEND_URL,
-      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-      credentials: true,
-    });
-    const gameGatewayInstances = app.get(GameGateway);
-    console.log('GameGateway Instances:', gameGatewayInstances); // Inspect in console
-    await app.listen(process.env.PORT ?? 4000);
-  }
-  bootstrap();
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: process.env.FRONTEND_URL,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+  });
+  const gameGatewayInstances = app.get(GameGateway);
+  console.log('GameGateway Instances:', gameGatewayInstances); // Inspect in console
+  await app.listen(process.env.PORT ?? 4000);
+}
+bootstrap();
 
 
 
