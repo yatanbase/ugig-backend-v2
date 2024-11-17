@@ -93,26 +93,34 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         const roomId = client.data.roomId;
         const gameId = client.data.gameId;
-        const opponentSocket = Array.from(this.userSockets.values()).filter(
-          (s) => s.id !== client.id && s.rooms.has(roomId),
+
+        //  const game = await this.gamesService.getGame(gameId);
+        //  const opponentUsername = game?.players.find(p => p.username !== decoded.username)?.username
+
+        console.log(
+          `Client getting disconnected username: ${decoded.username}`,
         );
-
+        console.log('room id', roomId);
+        //get winning players socket ( game rule disconnected player loses)
         const roomSockets = await this.server.in(roomId).fetchSockets();
-        console.log('roomSockets', roomSockets);
-
-        roomSockets.forEach((s) => {
-          if (s.id !== client.id) {
-            console.log('disconnecting other user');
-            this.server.to(s.id).emit('gameOver', { winner: s.data.username });
+        console.log('room sockets', roomSockets);
+        roomSockets.forEach((socket) => {
+          if (socket.id !== client.id) {
+            console.log('failsafe disconnect');
+            console.log(socket.data.username);
+            this.server
+              .to(roomId)
+              .emit('gameOver', { winner: socket.data.username });
             this.gamesService.updateGameState(gameId, GameState.GAME_OVER);
-            this.gamesService.setWinner(gameId, s.data.username);
+            this.gamesService.setWinner(gameId, socket.data.username);
           }
         });
-
-        console.log(`deleting ${decoded.username} from userSockets`);
+        console.log(
+          `deleting ${decoded.username} from rooms map and onlineusers in server ....`,
+        );
         this.userSockets.delete(decoded.username);
         this.onlineUsers.delete(decoded.username);
-        console.log(`Client disconnected: ${decoded.username}`);
+        console.log('sockets after disconnect : ', this.userSockets);
       } catch (error) {
         console.log('Error during disconnection:', error);
       }
@@ -220,6 +228,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log('game created with players ', game.players);
       client.join(roomId);
       client.data.roomId = roomId;
+      client.data.username = decoded.username;
       console.log(
         `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
       ); // Log with username
@@ -264,10 +273,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
-
-      const { roomId } = data;
       client.data.username = decoded.username;
 
+      const { roomId } = data;
+      client.data.roomId = roomId;
       client.join(roomId);
       console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
 
