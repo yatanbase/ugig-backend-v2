@@ -40,17 +40,29 @@ export class GamesService {
   }
 
   async updateGameState(gameId: number, state: GameState): Promise<Game> {
+    console.log(
+      `updateGameState called with gameId: ${gameId}, state: ${state}`,
+    );
     const game = await this.getGame(gameId);
     if (!game) {
+      console.error(`Game with id ${gameId} not found`);
       throw new Error('Game not found');
     }
     game.state = state;
-    return this.gameRepository.save(game);
+    const updatedGame = await this.gameRepository.save(game);
+    console.log(
+      `Game state updated successfully for gameId: ${gameId}, new state: ${state}`,
+    );
+    return updatedGame;
   }
 
   async setWinner(gameId: number, winnerUsername: string): Promise<Game> {
+    console.log(
+      `setWinner called with gameId: ${gameId}, winnerUsername: ${winnerUsername}`,
+    );
     const game = await this.getGame(gameId);
     if (!game) {
+      console.error(`Game with id ${gameId} not found`);
       throw new Error('Game not found');
     }
 
@@ -58,11 +70,16 @@ export class GamesService {
       username: winnerUsername,
     });
     if (!winnerPlayer) {
+      console.error(`Winner player with username ${winnerUsername} not found`);
       throw new Error('Winner player not found');
     }
     game.winnerPlayer = winnerPlayer; // Set the winnerPlayer relation
 
-    return this.gameRepository.save(game);
+    const updatedGame = await this.gameRepository.save(game);
+    console.log(
+      `Winner set successfully for gameId: ${gameId}, winnerUsername: ${winnerUsername}`,
+    );
+    return updatedGame;
   }
   // In your GamesService (games.service.ts):
 

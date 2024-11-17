@@ -81,7 +81,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.disconnect();
     }
   }
-  handleDisconnect(@ConnectedSocket() client: Socket) {
+  async handleDisconnect(@ConnectedSocket() client: Socket) {
     // Remove user from onlineUsers if present. Use username from JWT if possible.
     if (client.handshake.headers.authorization) {
       try {
@@ -90,11 +90,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const decoded = this.jwtService.verify(token, {
           secret: process.env.JWT_SECRET,
         });
-        this.userSockets.delete(decoded.username); // Remove user from map
 
-        this.onlineUsers.delete(decoded.username);
-        console.log(`Client disconnected: ${decoded.username}`);
-
+        const roomId = client.data.roomId;
+        const gameId = client.data.gameId;
         const opponentSocket = Array.from(this.userSockets.values()).filter(
           (s) => s.id !== client.id && s.rooms.has(roomId),
         );
@@ -104,14 +102,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         if (opponentSocket.length) {
           // if oponent in the room, set as winner, set game state to gameover, then disconnect
-          this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
-          this.gamesService.setWinner(
+          await this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
+          await this.gamesService.setWinner(
             gameId,
             opponentSocket[0].handshake.auth.username,
           ); // Store the winner in the database
           this.server.to(roomId).emit('gameOver', {
             winner: opponentSocket[0].handshake.auth.username,
           });
+          // client.emit('gameOver', {winner: opponentSocket[0].handshake.auth.username});
+
+          this.userSockets.delete(decoded.username); // Remove user from map
+
+          this.onlineUsers.delete(decoded.username);
+          console.log(`Client disconnected: ${decoded.username}`);
         }
       } catch (error) {
         // ... error handling (optional) - client was probably not authenticated
@@ -220,6 +224,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       console.log('game created with players ', game.players);
       client.join(roomId);
+      client.data.roomId = roomId;
       console.log(
         `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
       ); // Log with username
@@ -297,14 +302,28 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `[createTurn] Starting createTurn for roomId: ${roomId}, gameId: ${gameId}, joiningUsername: ${joiningUsername}`,
     );
     const moves = await this.movesService.getMovesByGame(gameId);
-    console.log(`[createTurn] Retrieved moves for gameId: ${gameId}`, moves);
+    moves.forEach((move) => {
+      console.log(
+        `[createTurn] Retrieved move for gameId: ${gameId}`,
+        move.moveId,
+        move.tilePosition,
+        move.type,
+        move.player.username || 'someplayer',
+      );
+    });
     let selector: string;
     let predictor: string;
     let disabledCells: string[] = [];
     let scores: Record<string, number> = {};
     let winner: string | null = null;
     let gameOver = false;
+    const game = await this.gamesService.getGame(gameId); // Retrieve the game entity
 
+    //  Ensure game is loaded
+    if (!game) {
+      console.error('Game not found in createTurn');
+      return; // Or handle the error appropriately
+    }
     if (moves.length === 0) {
       console.log(`[createTurn] First turn for gameId: ${gameId}`);
       // First move: randomly assign selector and predictor
@@ -389,27 +408,48 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log(
         'disabledCells in createTurn fn else part',
         disabledCells,
-        moves,
+        // moves,
       );
     }
     const remainingCells = 64 - disabledCells.length;
+    console.log('length of remainingCells in createTurn fn', remainingCells);
     const [player1Username, player2Username] = Object.keys(scores);
+    console.log(
+      'player1Username, player2Username',
+      player1Username,
+      player2Username,
+    );
+
     const scoreDifference = Math.abs(
       scores[player1Username] - scores[player2Username],
     );
-
-    if (scoreDifference > remainingCells) {
+    console.log(
+      `scoreDifference between ${player1Username} and ${player2Username}: ${scoreDifference}` ||
+        'scoreDifference not calculated',
+    );
+    if (scoreDifference > remainingCells / 2 + 1) {
       winner =
         scores[player1Username] > scores[player2Username]
           ? player1Username
           : player2Username;
       gameOver = true;
+
+      console.log(
+        `[createTurn] in if(diff>rem) Game over for gameId: ${gameId}`,
+        `winner: ${winner}`,
+        `scores: ${scores}`,
+      );
     } else if (remainingCells === 0) {
       winner =
         scores[player1Username] > scores[player2Username]
           ? player1Username
           : player2Username;
       gameOver = true;
+      console.log(
+        `[createTurn] in if(rem===0) Game over for gameId: ${gameId}`,
+        `winner: ${winner}`,
+        `scores: ${scores}`,
+      );
     }
 
     if (gameOver) {
@@ -427,7 +467,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       .to(roomId)
       .emit('turn', { selector, predictor, gameId, disabledCells, scores });
     console.log(
-      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells} and scores: ${scores}`,
+      `[createTurn] Emitted 'turn' event for roomId: ${roomId}, gameId: ${gameId} with selector: ${selector}, predictor: ${predictor}, disabledCells: ${disabledCells} and scores:`,
+      scores,
     );
   }
   @SubscribeMessage('selectCell')
