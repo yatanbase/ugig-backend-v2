@@ -93,30 +93,30 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         const roomId = client.data.roomId;
         const gameId = client.data.gameId;
-        const opponentSocket = Array.from(this.userSockets.values()).filter(
-          (s) => s.id !== client.id && s.rooms.has(roomId),
-        );
+       
 
         //  const game = await this.gamesService.getGame(gameId);
         //  const opponentUsername = game?.players.find(p => p.username !== decoded.username)?.username
 
-        if (opponentSocket.length) {
-          // if oponent in the room, set as winner, set game state to gameover, then disconnect
-          await this.gamesService.updateGameState(gameId, GameState.GAME_OVER); // Set game state to GAME_OVER
-          await this.gamesService.setWinner(
-            gameId,
-            opponentSocket[0].handshake.auth.username,
-          ); // Store the winner in the database
-          this.server.to(roomId).emit('gameOver', {
-            winner: opponentSocket[0].handshake.auth.username,
+        console.log(`Client getting disconnected username: ${decoded.username}`);
+        console.log('room id',roomId)
+        //get winning players socket ( game rule disconnected player loses)
+        const roomSockets = await this.server.in(roomId).fetchSockets();
+        console.log('room sockets',roomSockets)
+          roomSockets.forEach((socket) => {
+          if (socket.id !== client.id) {
+            console.log('failsafe disconnect')
+            console.log(socket.data.username)
+            this.server.to(roomId).emit('gameOver', { winner: socket.data.username });
+            this.gamesService.updateGameState(gameId, GameState.GAME_OVER);
+            this.gamesService.setWinner(gameId, socket.data.username);
+          }
           });
-          // client.emit('gameOver', {winner: opponentSocket[0].handshake.auth.username});
-
-          this.userSockets.delete(decoded.username); // Remove user from map
-
+          console.log(`deleting ${decoded.username} from rooms map and onlineusers in server ....`);
+          this.userSockets.delete(decoded.username); 
           this.onlineUsers.delete(decoded.username);
-          console.log(`Client disconnected: ${decoded.username}`);
-        }
+          console.log('sockets after disconnect : ',this.userSockets)
+
       } catch (error) {
         // ... error handling (optional) - client was probably not authenticated
         console.log('Error during disconnection:', error);
@@ -225,6 +225,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log('game created with players ', game.players);
       client.join(roomId);
       client.data.roomId = roomId;
+      client.data.username=decoded.username;
       console.log(
         `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
       ); // Log with username
@@ -269,9 +270,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
+      client.data.username=decoded.username;
+      
 
       const { roomId } = data;
-
+      client.data.roomId=roomId;
       client.join(roomId);
       console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
 
