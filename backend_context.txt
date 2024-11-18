@@ -153,21 +153,25 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PlayerService } from '../player/player.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private playerService: PlayerService) {
+  constructor(
+    private playerService: PlayerService,
+    private configService: ConfigService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET,
+      secretOrKey: configService.get('JWT_SECRET'),
     });
   }
 
   async validate(payload: any) {
     // payload is the data encoded in the JWT
     const user = await this.playerService.findOneByEmail(payload.email);
-
+    console.log('user in jwt strategy validate', user);
     if (!user) {
       throw new UnauthorizedException();
     }
@@ -312,21 +316,37 @@ describe('GamesController', () => {
 
 
 // File: \Wisflux\Internship Assignments\ugig v2 draft\ugig-backend-v2\src\games\games.controller.ts
+import { Post, Body, Patch, Param, Delete } from '@nestjs/common';
 import {
   Controller,
   Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-} from '@nestjs/common';
+  Query,
+  UseGuards,
+  Request,
+  NotFoundException,
+} from '@nestjs/common'; // Import Request
 import { GamesService } from './games.service';
+import { Game } from './entities/game.entity';
 import { CreateGameDto } from './dto/create-game.dto';
 import { UpdateGameDto } from './dto/update-game.dto';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('games')
 export class GamesController {
+  @UseGuards(AuthGuard('jwt')) // If you are protecting this route.
+  @Get('history')
+  async getGamesHistory(
+    @Request() req,
+    @Query('username') username: string,
+  ): Promise<Game[]> {
+    console.log('getting games history');
+    const player = await this.playerRepository.findOneBy({ username }); // Get the player by username
+
+    if (!player) {
+      throw new NotFoundException('Player not found');
+    }
+    return this.gamesService.getGamesHistory(player.id); // Pass player ID to the service
+  }
   // constructor(private readonly gamesService: GamesService) {}
   // @Post()
   // create(@Body() createGameDto: CreateGameDto) {
@@ -398,6 +418,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Game, GameState } from './entities/game.entity';
 import { Player } from 'src/player/player.entity';
+import { PlayersService } from 'src/player/player.service'; // Import your PlayersService
+
 import { In } from 'typeorm';
 @Injectable()
 export class GamesService {
@@ -406,6 +428,7 @@ export class GamesService {
     private gameRepository: Repository<Game>,
     @InjectRepository(Player)
     private playerRepository: Repository<Player>,
+    private playersService: PlayersService, // Inject PlayerService
   ) {}
 
   async createGame(playerUsernames: string[]): Promise<Game> {
@@ -476,7 +499,17 @@ export class GamesService {
     return updatedGame;
   }
   // In your GamesService (games.service.ts):
-
+  async getGamesHistory(playerId: number): Promise<Game[]> {
+    return this.gameRepository.find({
+      where: {
+        players: {
+          id: playerId, // Find games where this player is in the players array
+        },
+      },
+      relations: ['players', 'winnerPlayer'], // Load the relations as needed
+      order: { startAt: 'DESC' }, // Sort by start date, most recent first
+    });
+  }
   // ... other methods (e.g., for updating game details, finding games by player, etc.)
 }
 
@@ -783,7 +816,7 @@ import { PlayerService } from './player/player.service';
 import { GamesModule } from './games/games.module';
 import { PlayerModule } from './player/player.module'; // Import PlayerModule
 import { Game } from './games/entities/game.entity';
-
+import { PassportModule } from '@nestjs/passport';
 import { GamesService } from './games/games.service';
 import { Move } from './moves/moves.entity';
 import { MovesModule } from './moves/moves.module';
@@ -807,9 +840,14 @@ import { MovesModule } from './moves/moves.module';
     }),
     TypeOrmModule.forFeature([Player, Game, Move]),
     AuthModule,
+    PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '1d' },
+      useFactory: async (configService: ConfigService) => ({
+        // Asynchronous factory function
+        secret: configService.get<string>('JWT_SECRET'), // Access the configuration value
+        signOptions: { expiresIn: '1d' }, // Token expiration time
+      }),
+      inject: [ConfigService], // Inject the ConfigService int the factory fn
     }),
     GamesModule,
     PlayerModule,
@@ -931,26 +969,37 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         const roomId = client.data.roomId;
         const gameId = client.data.gameId;
-        const opponentSocket = Array.from(this.userSockets.values()).filter(
-          (s) => s.id !== client.id && s.rooms.has(roomId),
+
+        //  const game = await this.gamesService.getGame(gameId);
+        //  const opponentUsername = game?.players.find(p => p.username !== decoded.username)?.username
+
+        console.log(
+          `Client getting disconnected username: ${decoded.username}`,
         );
-
+        console.log('room id', roomId);
+        //get winning players socket ( game rule disconnected player loses)
         const roomSockets = await this.server.in(roomId).fetchSockets();
-        console.log('roomSockets', roomSockets);
-
-        roomSockets.forEach((s) => {
-          if (s.id !== client.id) {
-            console.log('disconnecting other user');
-            this.server.to(s.id).emit('gameOver', { winner: s.data.username });
-            this.gamesService.updateGameState(gameId, GameState.GAME_OVER);
-            this.gamesService.setWinner(gameId, s.data.username);
+        console.log('room sockets', roomSockets);
+        roomSockets.forEach((socket) => {
+          if (socket.id !== client.id) {
+            console.log('failsafe disconnect');
+            console.log(socket.data.username);
+            this.server
+              .to(roomId)
+              .emit('gameOver', { winner: socket.data.username });
+            await this.gamesService.updateGameState(
+              gameId,
+              GameState.GAME_OVER,
+            );
+            await this.gamesService.setWinner(gameId, socket.data.username);
           }
         });
-
-        console.log(`deleting ${decoded.username} from userSockets`);
+        console.log(
+          `deleting ${decoded.username} from rooms map and onlineusers in server ....`,
+        );
         this.userSockets.delete(decoded.username);
         this.onlineUsers.delete(decoded.username);
-        console.log(`Client disconnected: ${decoded.username}`);
+        console.log('sockets after disconnect : ', this.userSockets);
       } catch (error) {
         console.log('Error during disconnection:', error);
       }
@@ -1047,6 +1096,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
+      client.data.username = decoded.username;
 
       const roomId = `room-${data.from}-${decoded.username}-${Date.now()}`; // Create unique room ID using usernames and timestamp
       console.log('Room ID created: ', roomId);
@@ -1058,6 +1108,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log('game created with players ', game.players);
       client.join(roomId);
       client.data.roomId = roomId;
+      client.data.username = decoded.username;
       console.log(
         `User ${decoded.username} with id ${client.id} joined room: ${roomId}`,
       ); // Log with username
@@ -1102,10 +1153,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
-
-      const { roomId } = data;
       client.data.username = decoded.username;
 
+      const { roomId } = data;
+      client.data.roomId = roomId;
       client.join(roomId);
       console.log(`User ${decoded.username} joined room: ${roomId}`); // Log with username
 

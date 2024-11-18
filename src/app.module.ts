@@ -3,7 +3,7 @@ import { AppController } from './app.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-
+import { GamesController } from './games/games.controller'; // Import GamesController
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GameGateway } from './game.gateway';
 import { AuthModule } from './auth/auth.module'; // Correctly import AuthModule
@@ -12,7 +12,7 @@ import { PlayerService } from './player/player.service';
 import { GamesModule } from './games/games.module';
 import { PlayerModule } from './player/player.module'; // Import PlayerModule
 import { Game } from './games/entities/game.entity';
-
+import { PassportModule } from '@nestjs/passport';
 import { GamesService } from './games/games.service';
 import { Move } from './moves/moves.entity';
 import { MovesModule } from './moves/moves.module';
@@ -36,16 +36,21 @@ import { MovesModule } from './moves/moves.module';
     }),
     TypeOrmModule.forFeature([Player, Game, Move]),
     AuthModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '1d' },
+    PassportModule,
+    JwtModule.registerAsync({
+      useFactory: async (configService: ConfigService) => ({
+        // Asynchronous factory function
+        secret: configService.get<string>('JWT_SECRET'), // Access the configuration value
+        signOptions: { expiresIn: '1d' }, // Token expiration time
+      }),
+      inject: [ConfigService], // Inject the ConfigService int the factory fn
     }),
     GamesModule,
     PlayerModule,
     MovesModule,
   ],
 
-  controllers: [AppController],
+  controllers: [AppController, GamesController],
   providers: [AppService, GameGateway, PlayerService],
 })
 export class AppModule {}

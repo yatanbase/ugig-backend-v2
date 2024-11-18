@@ -104,17 +104,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         //get winning players socket ( game rule disconnected player loses)
         const roomSockets = await this.server.in(roomId).fetchSockets();
         console.log('room sockets', roomSockets);
-        roomSockets.forEach((socket) => {
+        for (const socket of roomSockets) {
           if (socket.id !== client.id) {
             console.log('failsafe disconnect');
             console.log(socket.data.username);
             this.server
               .to(roomId)
               .emit('gameOver', { winner: socket.data.username });
-            this.gamesService.updateGameState(gameId, GameState.GAME_OVER);
-            this.gamesService.setWinner(gameId, socket.data.username);
+            await this.gamesService.updateGameState(
+              gameId,
+              GameState.GAME_OVER,
+            );
+            await this.gamesService.setWinner(gameId, socket.data.username);
           }
-        });
+        }
         console.log(
           `deleting ${decoded.username} from rooms map and onlineusers in server ....`,
         );
@@ -217,6 +220,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
+      client.data.username = decoded.username;
 
       const roomId = `room-${data.from}-${decoded.username}-${Date.now()}`; // Create unique room ID using usernames and timestamp
       console.log('Room ID created: ', roomId);

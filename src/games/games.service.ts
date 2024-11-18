@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Game, GameState } from './entities/game.entity';
 import { Player } from 'src/player/player.entity';
+import { PlayerService } from '../player/player.service'; // Import your PlayersService
+
 import { In } from 'typeorm';
 @Injectable()
 export class GamesService {
@@ -12,6 +14,7 @@ export class GamesService {
     private gameRepository: Repository<Game>,
     @InjectRepository(Player)
     private playerRepository: Repository<Player>,
+    private playersService: PlayerService, // Inject PlayerService
   ) {}
 
   async createGame(playerUsernames: string[]): Promise<Game> {
@@ -82,6 +85,16 @@ export class GamesService {
     return updatedGame;
   }
   // In your GamesService (games.service.ts):
-
+  async getGamesHistory(playerId: number): Promise<Game[]> {
+    return this.gameRepository.find({
+      where: {
+        players: {
+          id: playerId, // Find games where this player is in the players array
+        },
+      },
+      relations: ['players', 'winnerPlayer'], // Load the relations as needed
+      order: { startAt: 'DESC' }, // Sort by start date, most recent first
+    });
+  }
   // ... other methods (e.g., for updating game details, finding games by player, etc.)
 }
